@@ -15,52 +15,27 @@ jobs:
         run: |
           Write-Host "Configuring RDP..."
 
-          Set-ItemProperty `
-            -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server' `
-            -Name "fDenyTSConnections" `
-            -Value 0 `
-            -Force
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" -Name "fDenyTSConnections" -Value 0 -Force
 
-          Set-ItemProperty `
-            -Path 'HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp' `
-            -Name "UserAuthentication" `
-            -Value 0 `
-            -Force
+          Set-ItemProperty -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server\WinStations\RDP-Tcp" -Name "UserAuthentication" -Value 0 -Force
 
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
           netsh advfirewall firewall delete rule name="RDP-Tailscale"
 
-          netsh advfirewall firewall add rule `
-            name="RDP-Tailscale" `
-            dir=in `
-            action=allow `
-            protocol=TCP `
-            localport=3389
+          netsh advfirewall firewall add rule name="RDP-Tailscale" dir=in action=allow protocol=TCP localport=3389
 
           Set-Service -Name TermService -StartupType Automatic
+
           Restart-Service -Name TermService -Force
 
           Write-Host "RDP configured"
 
 
-      - name="Create RDP User with Secure Password"
+      - name: Create RDP User
         shell: powershell
         run: |
-          $charSet = @{
-              Upper   = [char[]](65..90)
-              Lower   = [char[]](97..122)
-              Number  = [char[]](48..57)
-              Special = ([char[]](33..47) + [char[]](58..64) + [char[]](91..96) + [char[]](123..126))
-          }
-
-          $rawPassword = @()
-          $rawPassword += $charSet.Upper | Get-Random -Count 4
-          $rawPassword += $charSet.Lower | Get-Random -Count 4
-          $rawPassword += $charSet.Number | Get-Random -Count 4
-          $rawPassword += $charSet.Special | Get-Random -Count 4
-
-          $password = -join ($rawPassword | Sort-Object { Get-Random })
+          $password = "Rdp@123456789!"
 
           $securePass = ConvertTo-SecureString $password -AsPlainText -Force
 
@@ -68,18 +43,11 @@ jobs:
               Remove-LocalUser -Name "RDP"
           }
 
-          New-LocalUser `
-            -Name "RDP" `
-            -Password $securePass `
-            -AccountNeverExpires
+          New-LocalUser -Name "RDP" -Password $securePass -AccountNeverExpires
 
-          Add-LocalGroupMember `
-            -Group "Administrators" `
-            -Member "RDP"
+          Add-LocalGroupMember -Group "Administrators" -Member "RDP"
 
-          Add-LocalGroupMember `
-            -Group "Remote Desktop Users" `
-            -Member "RDP"
+          Add-LocalGroupMember -Group "Remote Desktop Users" -Member "RDP"
 
           echo "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
 
@@ -90,15 +58,16 @@ jobs:
         shell: powershell
         run: |
           $url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+
           $installer = "$env:TEMP\tailscale.msi"
 
           Invoke-WebRequest -Uri $url -OutFile $installer
 
-          Start-Process msiexec.exe `
-            -ArgumentList "/i", "`"$installer`"", "/quiet", "/norestart" `
-            -Wait
+          Start-Process msiexec.exe -ArgumentList "/i `"$installer`" /quiet /norestart" -Wait
 
           Remove-Item $installer -Force
+
+          Write-Host "Tailscale installed"
 
 
       - name: Connect Tailscale
@@ -117,29 +86,29 @@ jobs:
           Write-Host "Tailscale IP: $ip"
 
 
-      - name: Verify RDP Listener
+      - name: Verify RDP
         shell: powershell
         run: |
-          Write-Host "Checking port 3389..."
-          
-          netstat -an | findstr 3389
+          Write-Host "Checking RDP service..."
 
-          Write-Host "Checking service..."
-          
           Get-Service TermService
 
+          Write-Host "Checking port 3389..."
 
-      - name: Show RDP Details
+          netstat -an | findstr 3389
+
+
+      - name: Show Connection Details
         shell: powershell
         run: |
           Write-Host ""
-          Write-Host "======================"
-          Write-Host "RDP ACCESS"
-          Write-Host "======================"
+          Write-Host "=============================="
+          Write-Host "RDP CONNECTION DETAILS"
+          Write-Host "=============================="
           Write-Host "Address: $env:TAILSCALE_IP"
           Write-Host "Username: .\RDP"
           Write-Host "Password: $env:RDP_PASSWORD"
-          Write-Host "======================"
+          Write-Host "=============================="
 
 
       - name: Keep Alive
