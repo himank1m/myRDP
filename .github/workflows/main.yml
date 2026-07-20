@@ -10,10 +10,10 @@ jobs:
 
     steps:
 
-      - name: Configure Core RDP Settings
+      - name: Configure RDP and Firewall
         shell: powershell
         run: |
-          Write-Host "Configuring RDP..."
+          Write-Host "Enabling RDP..."
 
           Set-ItemProperty `
             -Path "HKLM:\System\CurrentControlSet\Control\Terminal Server" `
@@ -29,20 +29,24 @@ jobs:
 
           Enable-NetFirewallRule -DisplayGroup "Remote Desktop"
 
-          netsh advfirewall firewall delete rule name="RDP-Tailscale"
+          netsh advfirewall firewall add rule `
+            name="Tailscale Allow All" `
+            dir=in `
+            action=allow `
+            remoteip=100.64.0.0/10
 
           netsh advfirewall firewall add rule `
-            name="RDP-Tailscale" `
+            name="RDP Tailscale" `
             dir=in `
             action=allow `
             protocol=TCP `
-            localport=3389
+            localport=3389 `
+            remoteip=100.64.0.0/10
 
-          Set-Service -Name TermService -StartupType Automatic
+          Set-Service TermService -StartupType Automatic
+          Restart-Service TermService -Force
 
-          Restart-Service -Name TermService -Force
-
-          Write-Host "RDP configured"
+          Write-Host "RDP ready"
 
 
       - name: Create RDP User
@@ -50,7 +54,7 @@ jobs:
         run: |
           $password = "Vf7#kP92!xLm45@Q"
 
-          $securePass = ConvertTo-SecureString `
+          $secure = ConvertTo-SecureString `
             $password `
             -AsPlainText `
             -Force
@@ -61,7 +65,7 @@ jobs:
 
           New-LocalUser `
             -Name "RDP" `
-            -Password $securePass `
+            -Password $secure `
             -AccountNeverExpires `
             -PasswordNeverExpires
 
@@ -75,28 +79,21 @@ jobs:
 
           echo "RDP_PASSWORD=$password" >> $env:GITHUB_ENV
 
-          Write-Host "RDP user created successfully"
+          Write-Host "User created"
 
 
       - name: Install Tailscale
         shell: powershell
         run: |
-          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-
-          $installer = "$env:TEMP\tailscale.msi"
+          $url="https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
 
           Invoke-WebRequest `
             -Uri $url `
-            -OutFile $installer
+            -OutFile "$env:TEMP\tailscale.msi"
 
-          Start-Process `
-            msiexec.exe `
-            -ArgumentList "/i `"$installer`" /quiet /norestart" `
+          Start-Process msiexec.exe `
+            -ArgumentList "/i $env:TEMP\tailscale.msi /quiet /norestart" `
             -Wait
-
-          Remove-Item $installer -Force
-
-          Write-Host "Tailscale installed"
 
 
       - name: Connect Tailscale
@@ -106,45 +103,44 @@ jobs:
             --authkey=${{ secrets.TAILSCALE_AUTH_KEY }} `
             --hostname=gh-runner-$env:GITHUB_RUN_ID
 
-          Start-Sleep -Seconds 10
+          Start-Sleep -Seconds 15
 
-          $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          $ip=& "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
 
           echo "TAILSCALE_IP=$ip" >> $env:GITHUB_ENV
 
           Write-Host "Tailscale IP: $ip"
 
 
-      - name: Verify RDP Listener
+      - name: Debug Tailscale
         shell: powershell
         run: |
-          Write-Host "Checking Remote Desktop service..."
+          Write-Host "=== STATUS ==="
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" status
 
-          Get-Service TermService
+          Write-Host "=== NETCHECK ==="
+          & "$env:ProgramFiles\Tailscale\tailscale.exe" netcheck
 
-          Write-Host ""
-          Write-Host "Checking port 3389..."
-
+          Write-Host "=== RDP LISTENER ==="
           netstat -an | findstr 3389
 
 
-      - name: Show RDP Details
+      - name: Show Credentials
         shell: powershell
         run: |
           Write-Host ""
-          Write-Host "=============================="
-          Write-Host "RDP CONNECTION DETAILS"
-          Write-Host "=============================="
-          Write-Host "Address: $env:TAILSCALE_IP"
-          Write-Host "Username: .\RDP"
-          Write-Host "Password: $env:RDP_PASSWORD"
-          Write-Host "=============================="
+          Write-Host "======================"
+          Write-Host "RDP ACCESS"
+          Write-Host "IP: $env:TAILSCALE_IP"
+          Write-Host "USER: .\RDP"
+          Write-Host "PASS: $env:RDP_PASSWORD"
+          Write-Host "======================"
 
 
       - name: Keep Alive
         shell: powershell
         run: |
           while ($true) {
-              Write-Host "[$(Get-Date)] RDP Active..."
-              Start-Sleep -Seconds 300
+            Write-Host "[$(Get-Date)] RDP Active..."
+            Start-Sleep -Seconds 300
           }
