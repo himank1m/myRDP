@@ -41,19 +41,17 @@ jobs:
           Set-Service -Name TermService -StartupType Automatic
           Restart-Service -Name TermService -Force
 
-          Write-Host "RDP configured successfully"
+          Write-Host "RDP configured"
 
 
-      - name: Create RDP User with Secure Password
+      - name="Create RDP User with Secure Password"
         shell: powershell
         run: |
-          Add-Type -AssemblyName System.Security
-
           $charSet = @{
               Upper   = [char[]](65..90)
               Lower   = [char[]](97..122)
               Number  = [char[]](48..57)
-              Special = ([char[]](33..47) + [char[]](58..64) + ([char[]](91..96)) + ([char[]](123..126))
+              Special = ([char[]](33..47) + [char[]](58..64) + [char[]](91..96) + [char[]](123..126))
           }
 
           $rawPassword = @()
@@ -91,22 +89,19 @@ jobs:
       - name: Install Tailscale
         shell: powershell
         run: |
-          $tsUrl = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
-          $installerPath = "$env:TEMP\tailscale.msi"
+          $url = "https://pkgs.tailscale.com/stable/tailscale-setup-1.82.0-amd64.msi"
+          $installer = "$env:TEMP\tailscale.msi"
 
-          Invoke-WebRequest `
-            -Uri $tsUrl `
-            -OutFile $installerPath
+          Invoke-WebRequest -Uri $url -OutFile $installer
 
-          Start-Process `
-            msiexec.exe `
-            -ArgumentList "/i", "`"$installerPath`"", "/quiet", "/norestart" `
+          Start-Process msiexec.exe `
+            -ArgumentList "/i", "`"$installer`"", "/quiet", "/norestart" `
             -Wait
 
-          Remove-Item $installerPath -Force
+          Remove-Item $installer -Force
 
 
-      - name: Establish Tailscale Connection
+      - name: Connect Tailscale
         shell: powershell
         run: |
           & "$env:ProgramFiles\Tailscale\tailscale.exe" up `
@@ -115,45 +110,39 @@ jobs:
 
           Start-Sleep -Seconds 10
 
-          $tsIP = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
+          $ip = & "$env:ProgramFiles\Tailscale\tailscale.exe" ip -4
 
-          if (-not $tsIP) {
-              Write-Error "No Tailscale IP found"
-              exit 1
-          }
+          echo "TAILSCALE_IP=$ip" >> $env:GITHUB_ENV
 
-          echo "TAILSCALE_IP=$tsIP" >> $env:GITHUB_ENV
-
-          Write-Host "Tailscale IP: $tsIP"
+          Write-Host "Tailscale IP: $ip"
 
 
       - name: Verify RDP Listener
         shell: powershell
         run: |
-          Write-Host "Checking RDP port..."
-
+          Write-Host "Checking port 3389..."
+          
           netstat -an | findstr 3389
 
           Write-Host "Checking service..."
-
+          
           Get-Service TermService
 
 
-      - name: Display RDP Details
+      - name: Show RDP Details
         shell: powershell
         run: |
           Write-Host ""
-          Write-Host "=============================="
-          Write-Host "       RDP ACCESS"
-          Write-Host "=============================="
+          Write-Host "======================"
+          Write-Host "RDP ACCESS"
+          Write-Host "======================"
           Write-Host "Address: $env:TAILSCALE_IP"
           Write-Host "Username: .\RDP"
           Write-Host "Password: $env:RDP_PASSWORD"
-          Write-Host "=============================="
-          Write-Host ""
+          Write-Host "======================"
 
 
-      - name: Maintain Connection
+      - name: Keep Alive
         shell: powershell
         run: |
           while ($true) {
